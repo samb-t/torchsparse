@@ -28,6 +28,7 @@ class Conv3d(nn.Module):
                  stride: Union[int, List[int], Tuple[int, ...]] = 1,
                  dilation: int = 1,
                  bias: bool = False,
+                 depthwise: bool = False,
                  transposed: bool = False,
                  config: Dict = None) -> None:
         super().__init__()
@@ -36,6 +37,7 @@ class Conv3d(nn.Module):
         self.kernel_size = make_ntuple(kernel_size, ndim=3)
         self.stride = make_ntuple(stride, ndim=3)
         self.dilation = dilation
+        self.depthwise = depthwise
         self.transposed = transposed
 
         if config is None:
@@ -48,9 +50,9 @@ class Conv3d(nn.Module):
         self.kernel_volume = int(np.prod(self.kernel_size))
         if self.kernel_volume > 1:
             self.kernel = nn.Parameter(
-                torch.zeros(self.kernel_volume, in_channels, out_channels))
+                torch.zeros(self.kernel_volume, in_channels if not depthwise else 1, out_channels))
         else:
-            self.kernel = nn.Parameter(torch.zeros(in_channels, out_channels))
+            self.kernel = nn.Parameter(torch.zeros(in_channels if not depthwise else 1, out_channels))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
@@ -110,6 +112,7 @@ class Conv3d(nn.Module):
                         bias=self.bias,
                         stride=self.stride,
                         dilation=self.dilation,
+                        depthwise=self.depthwise,
                         transposed=self.transposed,
                         epsilon=epsilon,
                         mm_thresh=mm_thresh,

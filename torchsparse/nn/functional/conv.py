@@ -33,6 +33,7 @@ class ConvolutionFunction(Function):
         mm_thresh: int,
         conv_mode: int,
         transposed: bool = False,
+        depthwise: bool = False
     ) -> torch.Tensor:
         input = input.contiguous()
         weight = weight.contiguous()
@@ -53,21 +54,38 @@ class ConvolutionFunction(Function):
                                      device=input.device)
 
         if input.device.type == 'cuda':
-            output = torchsparse.backend.convolution_forward_cuda(
-                input,
-                weight,
-                nbmaps,
-                nbsizes.cpu(),
-                input_mask,
-                output_mask,
-                sizes[1] if not transposed else sizes[0],
-                epsilon,
-                int(mm_thresh),
-                conv_mode,
-                transposed,
-                buffer,
-            )
+            if depthwise:
+                output = torchsparse.backend.depthwise_convolution_forward_cuda(
+                    input,
+                    weight,
+                    nbmaps,
+                    nbsizes.cpu(),
+                    input_mask,
+                    output_mask,
+                    sizes[1] if not transposed else sizes[0],
+                    epsilon,
+                    int(mm_thresh),
+                    conv_mode,
+                    transposed,
+                    buffer,
+                )
+            else:
+                output = torchsparse.backend.convolution_forward_cuda(
+                    input,
+                    weight,
+                    nbmaps,
+                    nbsizes.cpu(),
+                    input_mask,
+                    output_mask,
+                    sizes[1] if not transposed else sizes[0],
+                    epsilon,
+                    int(mm_thresh),
+                    conv_mode,
+                    transposed,
+                    buffer,
+                )
         elif input.device.type == 'cpu':
+            assert not depthwise
             torchsparse.backend.convolution_forward_cpu(input, output, weight,
                                                         nbmaps, nbsizes.cpu(),
                                                         transposed)
@@ -86,29 +104,42 @@ class ConvolutionFunction(Function):
                 cur_feat = input[in_map]
                 cur_feat = torch.mm(cur_feat, weight[kernel_idx])
                 output[out_map] += cur_feat
-        ctx.for_backwards = (input, weight, nbmaps, nbsizes, transposed)
+        ctx.for_backwards = (input, weight, nbmaps, nbsizes, transposed, depthwise)
         return output
 
     @staticmethod
     @custom_bwd
     def backward(ctx, grad_output: torch.Tensor):
-        input, weight, nbmaps, nbsizes, transposed = ctx.for_backwards
+        input, weight, nbmaps, nbsizes, transposed, depthwise = ctx.for_backwards
 
         grad_input = torch.zeros_like(input)
         grad_weight = torch.zeros_like(weight)
 
         if grad_output.device.type == 'cuda':
-            torchsparse.backend.convolution_backward_cuda(
-                input,
-                grad_input,
-                grad_output.contiguous(),
-                weight,
-                grad_weight,
-                nbmaps,
-                nbsizes.cpu(),
-                transposed,
-            )
+            if depthwise:
+                torchsparse.backend.depthwise_convolution_backward_cuda(
+                    input,
+                    grad_input,
+                    grad_output.contiguous(),
+                    weight,
+                    grad_weight,
+                    nbmaps,
+                    nbsizes.cpu(),
+                    transposed,
+                )
+            else:
+                torchsparse.backend.convolution_backward_cuda(
+                    input,
+                    grad_input,
+                    grad_output.contiguous(),
+                    weight,
+                    grad_weight,
+                    nbmaps,
+                    nbsizes.cpu(),
+                    transposed,
+                )
         elif grad_output.device.type == 'cpu':
+            assert not depthwise
             torchsparse.backend.convolution_backward_cpu(
                 input,
                 grad_input,
@@ -134,6 +165,7 @@ class ConvolutionFunction(Function):
             None,
             None,
             None,
+            None
         )
 
 
@@ -144,6 +176,7 @@ def conv3d(
     bias: Optional[torch.Tensor] = None,
     stride: Union[int, List[int], Tuple[int, ...]] = 1,
     dilation: Union[int, Tuple[int, ...]] = 1,
+    depthwise: bool = False,
     transposed: bool = False,
     epsilon: float = 0.0,
     mm_thresh: int = 0,
@@ -220,6 +253,7 @@ def conv3d(
             mm_thresh,
             conv_mode_num,
             transposed,
+            depthwise
         )
         if bias is not None:
             feats += bias
@@ -229,6 +263,7 @@ def conv3d(
             stride=tuple(input.stride[k] * stride[k] for k in range(3)),
         )
     else:
+        assert not depthwise
         tensor_stride = tuple(input.stride[k] // stride[k] for k in range(3))
         kmap = input.kmaps[(tensor_stride, kernel_size, stride, dilation)]
         feats = ConvolutionFunction.apply(

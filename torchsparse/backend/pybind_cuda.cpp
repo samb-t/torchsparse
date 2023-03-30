@@ -20,8 +20,10 @@
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("convolution_forward_cpu", &convolution_forward_cpu);
   m.def("convolution_forward_cuda", &convolution_forward_cuda);
+  m.def("depthwise_convolution_forward_cuda", &depthwise_convolution_forward_cuda);
   m.def("convolution_backward_cpu", &convolution_backward_cpu);
   m.def("convolution_backward_cuda", &convolution_backward_cuda);
+  m.def("depthwise_convolution_backward_cuda", &depthwise_convolution_backward_cuda);
   m.def("voxelize_forward_cpu", &voxelize_forward_cpu);
   m.def("voxelize_forward_cuda", &voxelize_forward_cuda);
   m.def("voxelize_backward_cpu", &voxelize_backward_cpu);
